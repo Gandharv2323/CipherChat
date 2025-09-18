@@ -10,6 +10,8 @@ import {
   decryptWithRsa,
   importRsaPublicKey,
   importAesKey,
+  encryptWithAes,
+  decryptWithAes,
 } from "@/lib/crypto";
 import type { Message, CryptoLog, UserKeys } from "@/lib/types";
 
@@ -79,8 +81,8 @@ export function useCryptoChat() {
 
     // 6. Both import the session key for use
     addLog("6. Both users now have the shared session key.");
-    const aliceSessionKey = await importAesKey(exportedSessionKeyRaw);
-    const bobSessionKey = await importAesKey(decryptedSessionKeyRaw);
+    const aliceSessionKey = await importAesKey(new Uint8Array(exportedSessionKeyRaw).buffer);
+    const bobSessionKey = await importAesKey(new Uint8Array(decryptedSessionKeyRaw).buffer);
 
     setUsers((prev) => ({
       Alice: { ...prev.Alice, sessionKey: aliceSessionKey },
