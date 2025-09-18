@@ -15,7 +15,7 @@ interface KeyManagementPanelProps {
   onKeyExchange: () => void;
 }
 
-const KeyDisplay = ({ name, user }: { name: string; user: UserKeys }) => (
+const KeyDisplay = ({ name, user, onGenerateKeys }: { name: string; user: UserKeys, onGenerateKeys: (userName: 'Alice' | 'Bob') => void }) => (
   <div className="flex items-center gap-4 p-3 rounded-lg bg-secondary/50">
     <UserAvatar name={name} />
     <div className="flex-1 text-sm">
