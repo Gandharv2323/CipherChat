@@ -8,8 +8,6 @@ import {
   generateAesKey,
   encryptWithRsa,
   decryptWithRsa,
-  encryptWithAes,
-  decryptWithAes,
   importRsaPublicKey,
   importAesKey,
 } from "@/lib/crypto";
@@ -61,7 +59,7 @@ export function useCryptoChat() {
     // 1. Alice generates a session key
     addLog("1. Alice generates a new AES-256 session key.");
     const sessionKey = await generateAesKey();
-    const exportedSessionKey = await exportKey(sessionKey);
+    const exportedSessionKeyRaw = await crypto.subtle.exportKey('raw', sessionKey);
 
     // 2. Alice imports Bob's public key
     addLog("2. Alice imports Bob's public RSA key.");
@@ -69,7 +67,7 @@ export function useCryptoChat() {
 
     // 3. Alice encrypts the session key with Bob's public key
     addLog("3. Alice encrypts the session key with Bob's public key using RSA-OAEP.");
-    const encryptedSessionKey = await encryptWithRsa(exportedSessionKey, bobPublicKey);
+    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyRaw, bobPublicKey);
 
     // --- Simulation of sending the key ---
     addLog("4. Alice 'sends' the encrypted session key to Bob.");
@@ -81,7 +79,7 @@ export function useCryptoChat() {
 
     // 6. Both import the session key for use
     addLog("6. Both users now have the shared session key.");
-    const aliceSessionKey = await importAesKey(exportedSessionKey);
+    const aliceSessionKey = await importAesKey(exportedSessionKeyRaw);
     const bobSessionKey = await importAesKey(decryptedSessionKeyRaw);
 
     setUsers((prev) => ({
