@@ -14,7 +14,7 @@ async function readMessages(): Promise<Omit<Message, 'decryptedText'>[]> {
     return JSON.parse(data);
   } catch (error) {
     // If the file doesn't exist, start with an empty array
-    if (error.code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return [];
     }
     throw error;
@@ -61,7 +61,7 @@ export async function getMessages() {
 
 // NOTE: The following is a simplified long-polling implementation for demo purposes.
 // A production app should use WebSockets for real-time communication.
-export async function subscribeToMessages(recipientName: string) {
+export async function subscribeToMessages(recipientName: string): Promise<Message | null> {
     return new Promise((resolve) => {
         const onMessage = (message: Message) => {
             // Check if the message is for the subscribing user OR if the sender is the subscriber

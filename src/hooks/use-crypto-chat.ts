@@ -62,13 +62,12 @@ export function useCryptoChat() {
     addLog("1. Alice generates a new AES-256 session key.");
     const sessionKey = await generateAesKey();
     const exportedSessionKeyRaw = await crypto.subtle.exportKey('raw', sessionKey);
-    const exportedSessionKeyBuffer = new Uint8Array(exportedSessionKeyRaw).buffer;
 
     addLog("2. Alice imports Bob's public RSA key.");
     const bobPublicKey = await importRsaPublicKey(users.Bob.keys.publicKeyJwk);
 
     addLog("3. Alice encrypts the session key with Bob's public key using RSA-OAEP.");
-    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyBuffer, bobPublicKey);
+    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyRaw, bobPublicKey);
 
     addLog("4. Alice 'sends' the encrypted session key to Bob.");
     
@@ -171,13 +170,12 @@ export function useCryptoChat() {
     let isSubscribed = true;
 
     const listenForMessages = async () => {
-      const currentUser = users[activeUser];
-      
-      if (!currentUser?.sessionKey) {
+      // Don't start polling if we are not in a state to decrypt messages
+      if (!users[activeUser]?.sessionKey) {
+        if (isSubscribed) setTimeout(listenForMessages, 1000); // Check again in a second
         return;
       }
       
-      addLog(`[${activeUser}] Listening for incoming messages...`);
       const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
 
       if (isSubscribed && incomingMessage) {
@@ -186,15 +184,10 @@ export function useCryptoChat() {
         setMessages((prev) => {
           // Avoid adding duplicate messages
           if (prev.find(m => m.id === incomingMessage.id)) {
-             // If message exists, but we are the recipient and haven't decrypted it, decrypt it now.
-             const existingMsg = prev.find(m => m.id === incomingMessage.id);
-             if (existingMsg && existingMsg.recipient === activeUser && existingMsg.decryptedText.startsWith("🔒")) {
-                return prev.map(m => m.id === incomingMessage.id ? { ...m, isDecrypting: true } : m);
-             }
              return prev;
           }
           // Add new message in a temporary 'decrypting' state
-          return [...prev, { ...incomingMessage, decryptedText: "Decrypting...", isDecrypting: true }];
+          return [...prev, { ...incomingMessage, isDecrypting: true, decryptedText: "Decrypting..." }];
         });
       }
 
@@ -225,7 +218,7 @@ export function useCryptoChat() {
               let decryptedText: string;
               if (msg.sender === activeUser) {
                   decryptedText = msg.plainText; // Sender uses their own plaintext
-              } else {
+              } else if (msg.recipient === activeUser) {
                   try {
                       decryptedText = await decryptWithAes(msg.cipherText, msg.iv, currentUser.sessionKey);
                       addLog(`[${activeUser}] Message decrypted: "${decryptedText}"`);
@@ -234,6 +227,8 @@ export function useCryptoChat() {
                       decryptedText = "🔒 [Decryption Failed]";
                       addLog(`[${activeUser}] Failed to decrypt message ID: ${msg.id}`);
                   }
+              } else {
+                decryptedText = `🔒 [Encrypted for ${msg.recipient}]`
               }
 
               setMessages(prev =>

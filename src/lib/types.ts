@@ -11,10 +11,11 @@ export interface Message {
   id: number;
   sender: string;
   recipient: string;
-  plainText: string;
+  plainText: string; // Not stored on server in prod
   cipherText: string;
   iv: string;
   decryptedText: string;
+  isDecrypting?: boolean;
 }
 
 export interface CryptoLog {
