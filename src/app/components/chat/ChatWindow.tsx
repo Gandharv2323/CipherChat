@@ -1,20 +1,21 @@
 "use client";
-import type { Message } from "@/lib/types";
+import type { Message, MessageStatus as MessageStatusType } from "@/lib/types";
 import { MessageInput } from "@/app/components/chat/MessageInput";
 import { MessageBubble } from "@/app/components/chat/MessageBubble";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UserAvatar } from "@/app/components/chat/UserAvatar";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import { MessageStatus } from "./MessageStatus";
 
 interface ChatWindowProps {
   messages: Message[];
   onSendMessage: (plainText: string) => void;
   activeUser: 'Alice' | 'Bob';
   onSwitchUser: () => void;
+  messageStatus: MessageStatusType | null;
 }
 
-export function ChatWindow({ messages, onSendMessage, activeUser, onSwitchUser }: ChatWindowProps) {
+export function ChatWindow({ messages, onSendMessage, activeUser, onSwitchUser, messageStatus }: ChatWindowProps) {
   return (
     <div className="flex flex-col h-full bg-card">
       <div className="p-4 border-b flex justify-between items-center">
@@ -39,6 +40,7 @@ export function ChatWindow({ messages, onSendMessage, activeUser, onSwitchUser }
       </ScrollArea>
       <div className="p-4 border-t">
         <MessageInput onSendMessage={onSendMessage} activeUser={activeUser} />
+        {messageStatus && <MessageStatus status={messageStatus} />}
       </div>
     </div>
   );

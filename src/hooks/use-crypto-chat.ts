@@ -14,7 +14,7 @@ import {
   decryptWithAes,
 } from "@/lib/crypto";
 import { getMessages, sendMessage, subscribeToMessages } from "@/app/actions";
-import type { Message, CryptoLog, UserKeys } from "@/lib/types";
+import type { Message, CryptoLog, UserKeys, MessageStatus } from "@/lib/types";
 
 const initialUsers: Record<string, UserKeys> = {
   Alice: { name: "Alice", keys: null, sessionKey: null },
@@ -26,6 +26,7 @@ export function useCryptoChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [cryptoLogs, setCryptoLogs] = useState<CryptoLog[]>([]);
   const [activeUser, setActiveUser] = useState<"Alice" | "Bob">("Alice");
+  const [messageStatus, setMessageStatus] = useState<MessageStatus | null>(null);
   const { toast } = useToast();
 
   const addLog = useCallback((entry: string) => {
@@ -33,6 +34,12 @@ export function useCryptoChat() {
       ...prev,
       { id: Date.now() + Math.random(), entry },
     ]);
+  }, []);
+
+  const resetMessageStatus = useCallback(() => {
+    setTimeout(() => {
+        setMessageStatus(null)
+    }, 2000)
   }, []);
 
   const handleGenerateKeys = useCallback(async (userName: "Alice" | "Bob") => {
@@ -95,6 +102,7 @@ export function useCryptoChat() {
   const handleSendMessage = useCallback(async (plainText: string) => {
     const sender = users[activeUser];
     const recipientName = activeUser === "Alice" ? "Bob" : "Alice";
+    setMessageStatus({ step: 'idle', messageId: null });
 
     if (!sender.sessionKey) {
       toast({
@@ -104,12 +112,14 @@ export function useCryptoChat() {
       });
       return;
     }
-
+    
+    setMessageStatus({ step: 'encrypting', messageId: null });
     addLog(`${sender.name} is encrypting a message with the session key...`);
     const { ciphertext, iv } = await encryptWithAes(plainText, sender.sessionKey);
     addLog(`Message encrypted. Ciphertext: ${ciphertext.substring(0, 20)}...`);
-
-    await sendMessage({
+    
+    setMessageStatus({ step: 'sending', messageId: null });
+    const sentMessage = await sendMessage({
         sender: sender.name,
         recipient: recipientName,
         plainText, // Included for tooltip demonstration, NOT for server storage in production
@@ -117,6 +127,7 @@ export function useCryptoChat() {
         iv: iv,
     });
     
+    setMessageStatus({ step: 'sent', messageId: sentMessage.id });
     addLog(`Encrypted message sent to server.`);
 
   }, [activeUser, users, addLog, toast]);
@@ -133,7 +144,6 @@ export function useCryptoChat() {
 
       if (user.sessionKey) {
           const decryptedMessages = await Promise.all(serverMessages.map(async msg => {
-            // Only decrypt messages intended for the active user
             if(msg.recipient === activeUser) {
               try {
                 const decryptedText = await decryptWithAes(msg.cipherText, msg.iv, user.sessionKey!);
@@ -143,16 +153,13 @@ export function useCryptoChat() {
                  return { ...msg, decryptedText: "🔒 [Decryption Failed]" };
               }
             }
-            // If the user is the sender, show their original plaintext
             if (msg.sender === activeUser) {
                  return { ...msg, decryptedText: msg.plainText };
             }
-            // Otherwise, it's an encrypted message for the other user
             return { ...msg, decryptedText: `🔒 [Encrypted for ${msg.recipient}]` };
           }));
           setMessages(decryptedMessages as Message[]);
       } else {
-        // If no session key, just show placeholder text
         const placeholderMessages = serverMessages.map(msg => ({
           ...msg,
           decryptedText: `🔒 [Encrypted for ${msg.recipient}]`
@@ -161,7 +168,7 @@ export function useCryptoChat() {
       }
     };
     loadMessages();
-  }, [activeUser, users]); // Rerun when user switches or keys change
+  }, [activeUser, users]);
 
 
   // Effect to listen for incoming messages
@@ -169,9 +176,8 @@ export function useCryptoChat() {
     let isSubscribed = true;
 
     const listenForMessages = async () => {
-        // Don't start polling if we are not in a state to decrypt messages
         if (!users[activeUser]?.sessionKey) {
-          if (isSubscribed) setTimeout(listenForMessages, 1000); // Check again in a second
+          if (isSubscribed) setTimeout(listenForMessages, 1000); 
           return;
         }
 
@@ -182,18 +188,23 @@ export function useCryptoChat() {
                 if (isSubscribed && incomingMessage) {
                     addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
                     
+                    if (messageStatus?.messageId === incomingMessage.id && activeUser !== incomingMessage.sender) {
+                      setMessageStatus(prev => prev ? ({ ...prev, step: 'delivered' }) : null);
+                    }
+
                     setMessages((prev) => {
-                        // Avoid adding duplicate messages
-                        if (prev.find(m => m.id === incomingMessage.id)) {
-                            return prev;
+                        if (prev.find(m => m.id === incomingMessage.id)) return prev;
+                        
+                        const isRecipient = incomingMessage.recipient === activeUser;
+                        if (isRecipient && messageStatus?.messageId === incomingMessage.id) {
+                           setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
                         }
-                        // Add new message in a temporary 'decrypting' state
-                        return [...prev, { ...incomingMessage, isDecrypting: true, decryptedText: "Decrypting..." }];
+
+                        return [...prev, { ...incomingMessage, isDecrypting: isRecipient, decryptedText: "Decrypting..." }];
                     });
                 }
             } catch (error) {
                 console.error("Long polling error:", error);
-                // Wait a moment before retrying on error
                 if (isSubscribed) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
@@ -203,11 +214,10 @@ export function useCryptoChat() {
 
     listenForMessages();
 
-    // Cleanup function
     return () => {
         isSubscribed = false;
     };
-  }, [activeUser, users, addLog]);
+  }, [activeUser, users, addLog, messageStatus]);
 
   // Effect to process decryption for messages marked `isDecrypting`
   useEffect(() => {
@@ -220,12 +230,14 @@ export function useCryptoChat() {
 
           for (const msg of messagesToDecrypt) {
               let decryptedText: string;
-              if (msg.sender === activeUser) {
-                  decryptedText = msg.plainText; // Sender uses their own plaintext
-              } else if (msg.recipient === activeUser) {
+              if (msg.recipient === activeUser) {
                   try {
                       decryptedText = await decryptWithAes(msg.cipherText, msg.iv, currentUser.sessionKey);
                       addLog(`[${activeUser}] Message decrypted: "${decryptedText}"`);
+                      if (messageStatus?.messageId === msg.id) {
+                        setMessageStatus(prev => prev ? ({...prev, step: 'complete'}) : null);
+                        resetMessageStatus();
+                      }
                   } catch (e) {
                       console.error("Decryption failed for message:", msg.id, e);
                       decryptedText = "🔒 [Decryption Failed]";
@@ -253,6 +265,7 @@ export function useCryptoChat() {
     messages,
     cryptoLogs,
     activeUser,
+    messageStatus,
     handleGenerateKeys,
     handleKeyExchange,
     handleSendMessage,

@@ -30,5 +30,13 @@
     "cipherText": "/rF92vZfM9GVLq9G9t2Ht8dfExk=",
     "iv": "zKcGxmEbad0awssu",
     "id": 1758437215363
+  },
+  {
+    "sender": "Alice",
+    "recipient": "Bob",
+    "plainText": "dcsc",
+    "cipherText": "db/kIKO5Izl9k/XWJmWoNX9NOns=",
+    "iv": "DIkIA1XSLYH2aAkB",
+    "id": 1758437318289
   }
 ]

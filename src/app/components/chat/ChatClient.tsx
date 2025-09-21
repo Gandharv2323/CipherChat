@@ -12,6 +12,7 @@ export default function ChatClient() {
     messages,
     cryptoLogs,
     activeUser,
+    messageStatus,
     handleGenerateKeys,
     handleKeyExchange,
     handleSendMessage,
@@ -28,6 +29,7 @@ export default function ChatClient() {
               onSendMessage={handleSendMessage}
               activeUser={activeUser}
               onSwitchUser={switchUser}
+              messageStatus={messageStatus}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />

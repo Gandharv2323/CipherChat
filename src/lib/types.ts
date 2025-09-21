@@ -22,3 +22,17 @@ export interface CryptoLog {
   id: number;
   entry: string;
 }
+
+export type MessageLifeCycle =
+  | 'idle'
+  | 'encrypting'
+  | 'sending'
+  | 'sent'
+  | 'delivered'
+  | 'decrypting'
+  | 'complete';
+  
+export interface MessageStatus {
+  step: MessageLifeCycle;
+  messageId: number | null;
+}
