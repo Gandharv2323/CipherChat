@@ -13,7 +13,7 @@ import {
   encryptWithAes,
   decryptWithAes,
 } from "@/lib/crypto";
-import { sendMessage, subscribeToMessages } from "@/app/actions";
+import { getMessages, sendMessage, subscribeToMessages } from "@/app/actions";
 import type { Message, CryptoLog, UserKeys } from "@/lib/types";
 
 const initialUsers: Record<string, UserKeys> = {
@@ -109,7 +109,9 @@ export function useCryptoChat() {
     const { ciphertext, iv } = await encryptWithAes(plainText, sender.sessionKey);
     addLog(`Message encrypted. Ciphertext: ${ciphertext.substring(0, 20)}...`);
 
-    const sentMessage = await sendMessage({
+    // The message is sent to the server, but the sender's UI is updated via the polling mechanism
+    // to ensure it was successfully processed by the "backend".
+    await sendMessage({
         sender: sender.name,
         recipient: recipientName,
         plainText, // Included for tooltip demonstration, NOT for server storage in production
@@ -119,50 +121,132 @@ export function useCryptoChat() {
     
     addLog(`Encrypted message sent to server.`);
 
-    // Add sender's message to their own UI immediately
-    setMessages((prev) => [...prev, { ...sentMessage, decryptedText: plainText, id: sentMessage.id || Date.now() }]);
-
   }, [activeUser, users, addLog, toast]);
   
   const switchUser = useCallback(() => {
     setActiveUser(prev => prev === 'Alice' ? 'Bob' : 'Alice');
   }, []);
 
+  // Effect to load initial messages
+  useEffect(() => {
+    const loadMessages = async () => {
+      const serverMessages = await getMessages();
+      const user = users[activeUser];
+
+      if (user.sessionKey) {
+          const decryptedMessages = await Promise.all(serverMessages.map(async msg => {
+            // Only decrypt messages intended for the active user
+            if(msg.recipient === activeUser) {
+              try {
+                const decryptedText = await decryptWithAes(msg.cipherText, msg.iv, user.sessionKey!);
+                return { ...msg, decryptedText };
+              } catch (e) {
+                 console.error("Failed to decrypt message:", msg.id, e);
+                 return { ...msg, decryptedText: "🔒 [Decryption Failed]" };
+              }
+            }
+            // If the user is the sender, show their original plaintext
+            if (msg.sender === activeUser) {
+                 return { ...msg, decryptedText: msg.plainText };
+            }
+            // Otherwise, it's an encrypted message for the other user
+            return { ...msg, decryptedText: `🔒 [Encrypted for ${msg.recipient}]` };
+          }));
+          setMessages(decryptedMessages as Message[]);
+      } else {
+        // If no session key, just show placeholder text
+        const placeholderMessages = serverMessages.map(msg => ({
+          ...msg,
+          decryptedText: `🔒 [Encrypted for ${msg.recipient}]`
+        }));
+        setMessages(placeholderMessages as Message[]);
+      }
+    };
+    loadMessages();
+  }, [activeUser, users]); // Rerun when user switches or keys change
+
+
   // Effect to listen for incoming messages
   useEffect(() => {
+    let isSubscribed = true;
+
     const listenForMessages = async () => {
-      if (!users[activeUser]?.sessionKey) {
-        // If the user has no session key, don't listen.
-        // We'll restart the listener when the user changes or gets a key.
+      const currentUser = users[activeUser];
+      
+      if (!currentUser?.sessionKey) {
         return;
       }
       
       addLog(`[${activeUser}] Listening for incoming messages...`);
       const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
 
-      if (incomingMessage && users[activeUser].sessionKey) {
-          addLog(`[${activeUser}] Received an encrypted message.`);
-          const decryptedText = await decryptWithAes(incomingMessage.cipherText, incomingMessage.iv, users[activeUser].sessionKey!);
-          addLog(`[${activeUser}] Message decrypted successfully.`);
-          
-          setMessages((prev) => {
-            // Avoid adding duplicate messages
-            if (prev.find(m => m.id === incomingMessage.id)) return prev;
-            return [...prev, { ...incomingMessage, decryptedText }];
-          });
+      if (isSubscribed && incomingMessage) {
+        addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
+        
+        setMessages((prev) => {
+          // Avoid adding duplicate messages
+          if (prev.find(m => m.id === incomingMessage.id)) {
+             // If message exists, but we are the recipient and haven't decrypted it, decrypt it now.
+             const existingMsg = prev.find(m => m.id === incomingMessage.id);
+             if (existingMsg && existingMsg.recipient === activeUser && existingMsg.decryptedText.startsWith("🔒")) {
+                return prev.map(m => m.id === incomingMessage.id ? { ...m, isDecrypting: true } : m);
+             }
+             return prev;
+          }
+          // Add new message in a temporary 'decrypting' state
+          return [...prev, { ...incomingMessage, decryptedText: "Decrypting...", isDecrypting: true }];
+        });
       }
-      // Restart the listener
-      listenForMessages();
+
+      // Keep listening
+      if(isSubscribed) {
+        listenForMessages();
+      }
     };
 
     listenForMessages();
 
-    // Cleanup function to avoid memory leaks
+    // Cleanup function
     return () => {
-        // In a real app with WebSockets, you'd unsubscribe here.
-        // For our long-polling demo, the server-side timeout handles cleanup.
+        isSubscribed = false;
     };
   }, [activeUser, users, addLog]);
+
+  // Effect to process decryption for messages marked `isDecrypting`
+  useEffect(() => {
+      const decryptMessages = async () => {
+          const messagesToDecrypt = messages.filter(m => (m as any).isDecrypting);
+          if (messagesToDecrypt.length === 0) return;
+
+          const currentUser = users[activeUser];
+          if (!currentUser.sessionKey) return;
+
+          for (const msg of messagesToDecrypt) {
+              let decryptedText: string;
+              if (msg.sender === activeUser) {
+                  decryptedText = msg.plainText; // Sender uses their own plaintext
+              } else {
+                  try {
+                      decryptedText = await decryptWithAes(msg.cipherText, msg.iv, currentUser.sessionKey);
+                      addLog(`[${activeUser}] Message decrypted: "${decryptedText}"`);
+                  } catch (e) {
+                      console.error("Decryption failed for message:", msg.id, e);
+                      decryptedText = "🔒 [Decryption Failed]";
+                      addLog(`[${activeUser}] Failed to decrypt message ID: ${msg.id}`);
+                  }
+              }
+
+              setMessages(prev =>
+                  prev.map(m =>
+                      m.id === msg.id ? { ...msg, decryptedText, isDecrypting: false } : m
+                  )
+              );
+          }
+      };
+
+      decryptMessages();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, activeUser, users, addLog]);
 
 
   return {

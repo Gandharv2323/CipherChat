@@ -9,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Lock } from "lucide-react";
+import { Lock, Loader2 } from "lucide-react";
 
 interface MessageBubbleProps {
   message: Message;
@@ -24,10 +24,10 @@ export function MessageBubble({ message, currentUser }: MessageBubbleProps) {
     : "bg-secondary";
 
   const renderContent = () => {
-    if (isSender) {
-        return message.plainText;
+    // For recipient, show the decrypted text, or a loading state
+    if (!isSender && (message as any).isDecrypting) {
+        return <div className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin"/> Decrypting...</div>;
     }
-    // For recipient, show the decrypted text
     return message.decryptedText;
   }
   
