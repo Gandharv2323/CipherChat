@@ -121,7 +121,6 @@ export function useCryptoChat() {
     const { ciphertext, iv } = await encryptWithAes(plainText, sender.sessionKey);
     addLog(`Message encrypted. Ciphertext: ${ciphertext.substring(0, 20)}...`);
     
-    // Optimistically add to UI
     const optimisticMessage: Message = {
       id: tempId,
       sender: sender.name,
@@ -150,7 +149,6 @@ export function useCryptoChat() {
     } else {
       console.error("Failed to send message:", result.error);
       toast({ title: "Send Error", description: result.error, variant: 'destructive'});
-      // Optionally remove the optimistic message
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setMessageStatus(null);
     }
@@ -160,60 +158,66 @@ export function useCryptoChat() {
     setActiveUser(prev => prev === 'Alice' ? 'Bob' : 'Alice');
   }, []);
 
-  // Effect for real-time messages from Firestore
   useEffect(() => {
     const q = query(collection(db, "messages"), orderBy("timestamp", "asc"));
-
+    
     const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-      const serverMessages: Omit<Message, 'decryptedText'>[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        serverMessages.push({ id: doc.id, ...data } as any);
-      });
-      
-      const aliceSessionKey = users.Alice.sessionKey;
-      const bobSessionKey = users.Bob.sessionKey;
+        const serverMessages: Omit<Message, 'decryptedText'>[] = [];
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            serverMessages.push({ id: doc.id, ...data } as any);
+        });
 
-      const newMessages = await Promise.all(
-        serverMessages.map(async (msg) => {
-          let decryptedText = `🔒 [Encrypted for ${msg.recipient}]`;
-          const isDecrypting = false;
-          const sessionKey = msg.recipient === 'Alice' ? aliceSessionKey : bobSessionKey;
-          
-          if (msg.sender === activeUser) {
-            decryptedText = msg.plainText;
-            const existingMsg = messages.find(m => m.id === msg.id || (m.cipherText === msg.cipherText && m.sender === msg.sender));
-            if (existingMsg && messageStatus?.messageId === existingMsg.id) {
-                 setMessageStatus(prev => prev ? ({...prev, step: 'delivered'}) : null);
-            }
-          } else if (msg.recipient === activeUser && sessionKey) {
-            try {
-              if (messageStatus?.messageId === msg.id) {
-                setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
-              }
-              decryptedText = await decryptWithAes(msg.cipherText, msg.iv, sessionKey);
-              if (messageStatus?.messageId === msg.id) {
-                setMessageStatus(prev => prev ? ({ ...prev, step: 'complete' }) : null);
-                resetMessageStatus();
-              }
-              addLog(`[${activeUser}] Decrypted message: ${msg.id}`);
-            } catch (e) {
-              console.error("Decryption failed for message:", msg.id, e);
-              decryptedText = "🔒 [Decryption Failed]";
-            }
-          }
-          
-          return { ...msg, decryptedText, isDecrypting };
-        })
-      );
-      
-      setMessages(newMessages as Message[]);
+        const aliceSessionKey = users.Alice.sessionKey;
+        const bobSessionKey = users.Bob.sessionKey;
+
+        // Prevent decryption attempts until keys are ready
+        if (!aliceSessionKey || !bobSessionKey) {
+            const placeholderMessages = serverMessages.map(msg => ({
+                ...msg,
+                decryptedText: '🔒 [Establishing secure session...]',
+            }));
+            setMessages(placeholderMessages as Message[]);
+            return;
+        }
+
+        const newMessages = await Promise.all(
+            serverMessages.map(async (msg) => {
+                let decryptedText = `🔒 [Encrypted for ${msg.recipient}]`;
+                const sessionKey = msg.recipient === 'Alice' ? aliceSessionKey : bobSessionKey;
+                
+                if (msg.sender === activeUser) {
+                    decryptedText = msg.plainText;
+                    const existingMsg = messages.find(m => m.id === msg.id || (m.cipherText === msg.cipherText && m.sender === msg.sender));
+                    if (existingMsg && messageStatus?.messageId === existingMsg.id) {
+                        setMessageStatus(prev => prev ? ({...prev, step: 'delivered'}) : null);
+                    }
+                } else if (msg.recipient === activeUser && sessionKey) {
+                    try {
+                        if (messageStatus?.messageId === msg.id) {
+                            setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
+                        }
+                        decryptedText = await decryptWithAes(msg.cipherText, msg.iv, sessionKey);
+                        if (messageStatus?.messageId === msg.id) {
+                            setMessageStatus(prev => prev ? ({ ...prev, step: 'complete' }) : null);
+                            resetMessageStatus();
+                        }
+                        addLog(`[${activeUser}] Decrypted message: ${msg.id}`);
+                    } catch (e) {
+                        console.error("Decryption failed for message:", msg.id, e);
+                        decryptedText = "🔒 [Decryption Failed]";
+                    }
+                }
+                
+                return { ...msg, decryptedText };
+            })
+        );
+        
+        setMessages(newMessages as Message[]);
     });
 
-    // Cleanup subscription on unmount
     return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeUser, users.Alice.sessionKey, users.Bob.sessionKey, addLog]);
+  }, [activeUser, users.Alice.sessionKey, users.Bob.sessionKey, addLog, toast, messageStatus, messages, resetMessageStatus]);
 
 
   return {
