@@ -22,5 +22,13 @@
     "cipherText": "FHRUTv61u3hTomOxir28Qs+6lkUM",
     "iv": "oce8hnLtUneZUuVg",
     "id": 1758437130483
+  },
+  {
+    "sender": "Alice",
+    "recipient": "Bob",
+    "plainText": "erty",
+    "cipherText": "/rF92vZfM9GVLq9G9t2Ht8dfExk=",
+    "iv": "zKcGxmEbad0awssu",
+    "id": 1758437215363
   }
 ]
