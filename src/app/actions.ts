@@ -3,6 +3,7 @@
 import { db } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import type { Message } from "@/lib/types";
+import 'firebase/app';
 
 // The server action now directly interacts with Firestore
 export async function sendMessage(message: Omit<Message, 'id' | 'decryptedText' | 'timestamp'>) {
