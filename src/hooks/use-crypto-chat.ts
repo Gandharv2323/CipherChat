@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import {
   generateRsaKeyPair,
@@ -13,6 +13,7 @@ import {
   encryptWithAes,
   decryptWithAes,
 } from "@/lib/crypto";
+import { sendMessage, subscribeToMessages } from "@/app/actions";
 import type { Message, CryptoLog, UserKeys } from "@/lib/types";
 
 const initialUsers: Record<string, UserKeys> = {
@@ -58,31 +59,26 @@ export function useCryptoChat() {
 
     addLog("--- Starting Key Exchange (Alice -> Bob) ---");
 
-    // 1. Alice generates a session key
     addLog("1. Alice generates a new AES-256 session key.");
     const sessionKey = await generateAesKey();
     const exportedSessionKeyRaw = await crypto.subtle.exportKey('raw', sessionKey);
+    const exportedSessionKeyBuffer = new Uint8Array(exportedSessionKeyRaw).buffer;
 
-    // 2. Alice imports Bob's public key
     addLog("2. Alice imports Bob's public RSA key.");
     const bobPublicKey = await importRsaPublicKey(users.Bob.keys.publicKeyJwk);
 
-    // 3. Alice encrypts the session key with Bob's public key
     addLog("3. Alice encrypts the session key with Bob's public key using RSA-OAEP.");
-    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyRaw, bobPublicKey);
+    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyBuffer, bobPublicKey);
 
-    // --- Simulation of sending the key ---
     addLog("4. Alice 'sends' the encrypted session key to Bob.");
     
-    // 5. Bob receives and decrypts the session key with his private key
     addLog("5. Bob decrypts the session key with his private RSA key.");
     const bobPrivateKey = users.Bob.keys.privateKey;
     const decryptedSessionKeyRaw = await decryptWithRsa(encryptedSessionKey, bobPrivateKey);
 
-    // 6. Both import the session key for use
     addLog("6. Both users now have the shared session key.");
-    const aliceSessionKey = await importAesKey(new Uint8Array(exportedSessionKeyRaw).buffer);
-    const bobSessionKey = await importAesKey(new Uint8Array(decryptedSessionKeyRaw).buffer);
+    const aliceSessionKey = await importAesKey(exportedSessionKeyRaw);
+    const bobSessionKey = await importAesKey(decryptedSessionKeyRaw);
 
     setUsers((prev) => ({
       Alice: { ...prev.Alice, sessionKey: aliceSessionKey },
@@ -99,9 +95,8 @@ export function useCryptoChat() {
   const handleSendMessage = useCallback(async (plainText: string) => {
     const sender = users[activeUser];
     const recipientName = activeUser === "Alice" ? "Bob" : "Alice";
-    const recipient = users[recipientName];
 
-    if (!sender.sessionKey || !recipient.sessionKey) {
+    if (!sender.sessionKey) {
       toast({
         title: "Cannot Send Message",
         description: "A secure session has not been established. Perform key exchange first.",
@@ -114,26 +109,61 @@ export function useCryptoChat() {
     const { ciphertext, iv } = await encryptWithAes(plainText, sender.sessionKey);
     addLog(`Message encrypted. Ciphertext: ${ciphertext.substring(0, 20)}...`);
 
-    // Simulate receiving and decrypting
-    addLog(`${recipient.name} receives and decrypts the message...`);
-    const decryptedText = await decryptWithAes(ciphertext, iv, recipient.sessionKey);
-    addLog("Message decrypted successfully.");
+    const sentMessage = await sendMessage({
+        sender: sender.name,
+        recipient: recipientName,
+        plainText, // Included for tooltip demonstration, NOT for server storage in production
+        cipherText: ciphertext,
+        iv: iv,
+    });
+    
+    addLog(`Encrypted message sent to server.`);
 
-    const newMessage: Message = {
-      id: Date.now(),
-      sender: sender.name,
-      recipient: recipientName,
-      plainText,
-      cipherText: ciphertext,
-      iv: iv,
-      decryptedText,
-    };
-    setMessages((prev) => [...prev, newMessage]);
+    // Add sender's message to their own UI immediately
+    setMessages((prev) => [...prev, { ...sentMessage, decryptedText: plainText, id: sentMessage.id || Date.now() }]);
+
   }, [activeUser, users, addLog, toast]);
   
   const switchUser = useCallback(() => {
     setActiveUser(prev => prev === 'Alice' ? 'Bob' : 'Alice');
   }, []);
+
+  // Effect to listen for incoming messages
+  useEffect(() => {
+    const listenForMessages = async () => {
+      if (!users[activeUser]?.sessionKey) {
+        // If the user has no session key, don't listen.
+        // We'll restart the listener when the user changes or gets a key.
+        return;
+      }
+      
+      addLog(`[${activeUser}] Listening for incoming messages...`);
+      const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
+
+      if (incomingMessage && users[activeUser].sessionKey) {
+          addLog(`[${activeUser}] Received an encrypted message.`);
+          const decryptedText = await decryptWithAes(incomingMessage.cipherText, incomingMessage.iv, users[activeUser].sessionKey!);
+          addLog(`[${activeUser}] Message decrypted successfully.`);
+          
+          setMessages((prev) => {
+            // Avoid adding duplicate messages
+            if (prev.find(m => m.id === incomingMessage.id)) return prev;
+            return [...prev, { ...incomingMessage, decryptedText }];
+          });
+      }
+      // Restart the listener
+      listenForMessages();
+    };
+
+    listenForMessages();
+
+    // Cleanup function to avoid memory leaks
+    return () => {
+        // In a real app with WebSockets, you'd unsubscribe here.
+        // For our long-polling demo, the server-side timeout handles cleanup.
+    };
+  }, [activeUser, users, addLog]);
+
 
   return {
     users,

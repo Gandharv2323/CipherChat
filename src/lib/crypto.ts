@@ -66,7 +66,7 @@ export async function generateAesKey(): Promise<CryptoKey> {
 }
 
 // Import an AES key from raw ArrayBuffer
-export async function importAesKey(keyData: ArrayBuffer): Promise<CryptoKey> {
+export async function importAesKey(keyData: BufferSource): Promise<CryptoKey> {
     return await crypto.subtle.importKey(
         "raw",
         keyData,
