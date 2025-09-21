@@ -62,12 +62,13 @@ export function useCryptoChat() {
     addLog("1. Alice generates a new AES-256 session key.");
     const sessionKey = await generateAesKey();
     const exportedSessionKeyRaw = await crypto.subtle.exportKey('raw', sessionKey);
+    const exportedSessionKeyBuffer = exportedSessionKeyRaw;
 
     addLog("2. Alice imports Bob's public RSA key.");
     const bobPublicKey = await importRsaPublicKey(users.Bob.keys.publicKeyJwk);
 
     addLog("3. Alice encrypts the session key with Bob's public key using RSA-OAEP.");
-    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyRaw, bobPublicKey);
+    const encryptedSessionKey = await encryptWithRsa(exportedSessionKeyBuffer, bobPublicKey);
 
     addLog("4. Alice 'sends' the encrypted session key to Bob.");
     
