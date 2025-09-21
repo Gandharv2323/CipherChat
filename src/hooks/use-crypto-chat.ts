@@ -119,6 +119,8 @@ export function useCryptoChat() {
     addLog(`Message encrypted. Ciphertext: ${ciphertext.substring(0, 20)}...`);
     
     setMessageStatus({ step: 'sending', messageId: null });
+    
+    // The server action now returns the final message object, including the ID
     const sentMessage = await sendMessage({
         sender: sender.name,
         recipient: recipientName,
@@ -127,13 +129,15 @@ export function useCryptoChat() {
         iv: iv,
     });
     
+    // This confirms the message is on the server.
     setMessageStatus({ step: 'sent', messageId: sentMessage.id });
     addLog(`Encrypted message sent to server.`);
 
     // Manually add the sent message to the sender's UI immediately
+    // This makes the sending experience feel instant for the sender
     setMessages(prev => [...prev, {
       ...sentMessage,
-      decryptedText: plainText,
+      decryptedText: plainText, // Sender can see their own message
       isDecrypting: false,
     }]);
 
@@ -183,17 +187,16 @@ export function useCryptoChat() {
     let isSubscribed = true;
 
     const listenForMessages = async () => {
-        // No need to check for session key here, we want to listen regardless
         while (isSubscribed) {
             try {
-                // The `subscribeToMessages` function now waits for an event from the server
                 const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
                 
                 if (!isSubscribed || !incomingMessage) continue;
 
                 addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
                 
-                // If the current user is the sender, the message is already in the UI. We just update the status.
+                // If the current user is the sender, the message is already in the UI.
+                // We just update the status to "Delivered".
                 if (incomingMessage.sender === activeUser) {
                     if (messageStatus?.messageId === incomingMessage.id) {
                       setMessageStatus(prev => prev ? ({ ...prev, step: 'delivered' }) : null);
@@ -206,6 +209,7 @@ export function useCryptoChat() {
                      // Check if message already exists to avoid duplicates
                     if (messages.some(m => m.id === incomingMessage.id)) continue;
 
+                    // Set status for the recipient's view if they are also tracking this message
                     if (messageStatus?.messageId === incomingMessage.id) {
                         setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
                     }
@@ -216,7 +220,6 @@ export function useCryptoChat() {
             } catch (error) {
                 console.error("Long polling error:", error);
                 if (isSubscribed) {
-                    // Wait a bit before retrying on error
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
             }
@@ -245,6 +248,7 @@ export function useCryptoChat() {
                   try {
                       decryptedText = await decryptWithAes(msg.cipherText, msg.iv, currentUser.sessionKey);
                       addLog(`[${activeUser}] Message decrypted: "${decryptedText}"`);
+                      // This message belongs to the recipient, so check if they were the one sending an ACK
                       if (messageStatus?.messageId === msg.id) {
                         setMessageStatus(prev => prev ? ({...prev, step: 'complete'}) : null);
                         resetMessageStatus();
