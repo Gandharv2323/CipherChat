@@ -38,5 +38,13 @@
     "cipherText": "db/kIKO5Izl9k/XWJmWoNX9NOns=",
     "iv": "DIkIA1XSLYH2aAkB",
     "id": 1758437318289
+  },
+  {
+    "sender": "Alice",
+    "recipient": "Bob",
+    "plainText": "jhg",
+    "cipherText": "xYLRDrxonsmsrUaNMGg2iPvLEw==",
+    "iv": "0TifmaGdv4v2xebi",
+    "id": 1758437467725
   }
 ]

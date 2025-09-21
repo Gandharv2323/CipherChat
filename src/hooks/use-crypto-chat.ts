@@ -130,6 +130,13 @@ export function useCryptoChat() {
     setMessageStatus({ step: 'sent', messageId: sentMessage.id });
     addLog(`Encrypted message sent to server.`);
 
+    // Manually add the sent message to the sender's UI immediately
+    setMessages(prev => [...prev, {
+      ...sentMessage,
+      decryptedText: plainText,
+      isDecrypting: false,
+    }]);
+
   }, [activeUser, users, addLog, toast]);
   
   const switchUser = useCallback(() => {
@@ -176,36 +183,40 @@ export function useCryptoChat() {
     let isSubscribed = true;
 
     const listenForMessages = async () => {
-        if (!users[activeUser]?.sessionKey) {
-          if (isSubscribed) setTimeout(listenForMessages, 1000); 
-          return;
-        }
-
+        // No need to check for session key here, we want to listen regardless
         while (isSubscribed) {
             try {
+                // The `subscribeToMessages` function now waits for an event from the server
                 const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
                 
-                if (isSubscribed && incomingMessage) {
-                    addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
-                    
-                    if (messageStatus?.messageId === incomingMessage.id && activeUser !== incomingMessage.sender) {
+                if (!isSubscribed || !incomingMessage) continue;
+
+                addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
+                
+                // If the current user is the sender, the message is already in the UI. We just update the status.
+                if (incomingMessage.sender === activeUser) {
+                    if (messageStatus?.messageId === incomingMessage.id) {
                       setMessageStatus(prev => prev ? ({ ...prev, step: 'delivered' }) : null);
                     }
+                    continue; // Don't process it further for the sender
+                }
 
-                    setMessages((prev) => {
-                        if (prev.find(m => m.id === incomingMessage.id)) return prev;
-                        
-                        const isRecipient = incomingMessage.recipient === activeUser;
-                        if (isRecipient && messageStatus?.messageId === incomingMessage.id) {
-                           setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
-                        }
+                // If the message is for the current user (recipient)
+                if (incomingMessage.recipient === activeUser) {
+                     // Check if message already exists to avoid duplicates
+                    if (messages.some(m => m.id === incomingMessage.id)) continue;
 
-                        return [...prev, { ...incomingMessage, isDecrypting: isRecipient, decryptedText: "Decrypting..." }];
-                    });
+                    if (messageStatus?.messageId === incomingMessage.id) {
+                        setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
+                    }
+
+                    // Add message to UI in a decrypting state
+                    setMessages(prev => [...prev, { ...incomingMessage, isDecrypting: true, decryptedText: "Decrypting..." }]);
                 }
             } catch (error) {
                 console.error("Long polling error:", error);
                 if (isSubscribed) {
+                    // Wait a bit before retrying on error
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
             }
@@ -217,7 +228,7 @@ export function useCryptoChat() {
     return () => {
         isSubscribed = false;
     };
-  }, [activeUser, users, addLog, messageStatus]);
+  }, [activeUser, addLog, messageStatus, messages]);
 
   // Effect to process decryption for messages marked `isDecrypting`
   useEffect(() => {

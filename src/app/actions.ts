@@ -22,9 +22,20 @@ let isCacheInitialized = false;
 
 async function initializeCache() {
   if (isCacheInitialized) return;
-  messagesCache = await readMessagesFromFile();
+  try {
+    const data = await fs.readFile(messagesFilePath, 'utf-8');
+    messagesCache = data ? JSON.parse(data) : [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      await writeMessagesToFile([]); // Create the file if it doesn't exist
+    } else {
+      console.error("Error reading messages file:", error);
+    }
+    messagesCache = [];
+  }
   isCacheInitialized = true;
 }
+
 
 async function readMessagesFromFile(): Promise<Omit<Message, 'decryptedText'>[]> {
   try {
