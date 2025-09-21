@@ -109,8 +109,6 @@ export function useCryptoChat() {
     const { ciphertext, iv } = await encryptWithAes(plainText, sender.sessionKey);
     addLog(`Message encrypted. Ciphertext: ${ciphertext.substring(0, 20)}...`);
 
-    // The message is sent to the server, but the sender's UI is updated via the polling mechanism
-    // to ensure it was successfully processed by the "backend".
     await sendMessage({
         sender: sender.name,
         recipient: recipientName,
@@ -171,31 +169,36 @@ export function useCryptoChat() {
     let isSubscribed = true;
 
     const listenForMessages = async () => {
-      // Don't start polling if we are not in a state to decrypt messages
-      if (!users[activeUser]?.sessionKey) {
-        if (isSubscribed) setTimeout(listenForMessages, 1000); // Check again in a second
-        return;
-      }
-      
-      const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
+        // Don't start polling if we are not in a state to decrypt messages
+        if (!users[activeUser]?.sessionKey) {
+          if (isSubscribed) setTimeout(listenForMessages, 1000); // Check again in a second
+          return;
+        }
 
-      if (isSubscribed && incomingMessage) {
-        addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
-        
-        setMessages((prev) => {
-          // Avoid adding duplicate messages
-          if (prev.find(m => m.id === incomingMessage.id)) {
-             return prev;
-          }
-          // Add new message in a temporary 'decrypting' state
-          return [...prev, { ...incomingMessage, isDecrypting: true, decryptedText: "Decrypting..." }];
-        });
-      }
-
-      // Keep listening
-      if(isSubscribed) {
-        listenForMessages();
-      }
+        while (isSubscribed) {
+            try {
+                const incomingMessage = await subscribeToMessages(activeUser) as Message | null;
+                
+                if (isSubscribed && incomingMessage) {
+                    addLog(`[${activeUser}] Received an event for message ID: ${incomingMessage.id}.`);
+                    
+                    setMessages((prev) => {
+                        // Avoid adding duplicate messages
+                        if (prev.find(m => m.id === incomingMessage.id)) {
+                            return prev;
+                        }
+                        // Add new message in a temporary 'decrypting' state
+                        return [...prev, { ...incomingMessage, isDecrypting: true, decryptedText: "Decrypting..." }];
+                    });
+                }
+            } catch (error) {
+                console.error("Long polling error:", error);
+                // Wait a moment before retrying on error
+                if (isSubscribed) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+        }
     };
 
     listenForMessages();

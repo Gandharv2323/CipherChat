@@ -11,13 +11,20 @@ const messagesFilePath = path.join(process.cwd(), 'messages.json');
 async function readMessages(): Promise<Omit<Message, 'decryptedText'>[]> {
   try {
     const data = await fs.readFile(messagesFilePath, 'utf-8');
+    // If the file is empty, JSON.parse will fail.
+    if (!data) {
+      return [];
+    }
     return JSON.parse(data);
   } catch (error) {
     // If the file doesn't exist, start with an empty array
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      await writeMessages([]); // Create the file
       return [];
     }
-    throw error;
+    console.error("Error reading messages:", error);
+    // If there is a parsing error (e.g. empty file), return an empty array
+    return [];
   }
 }
 
@@ -73,10 +80,10 @@ export async function subscribeToMessages(recipientName: string): Promise<Messag
         };
         messageEvents.on('newMessage', onMessage);
 
-        // Timeout after 5 seconds to prevent hanging requests
+        // Timeout after 30 seconds to prevent hanging requests and allow for re-subscription.
         setTimeout(() => {
             messageEvents.removeListener('newMessage', onMessage);
             resolve(null);
-        }, 5000);
+        }, 30000); // 30-second timeout
     });
 }
