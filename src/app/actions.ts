@@ -73,10 +73,10 @@ export async function subscribeToMessages(recipientName: string) {
         };
         messageEvents.on('newMessage', onMessage);
 
-        // Timeout after 30 seconds to prevent hanging requests
+        // Timeout after 5 seconds to prevent hanging requests
         setTimeout(() => {
             messageEvents.removeListener('newMessage', onMessage);
             resolve(null);
-        }, 30000);
+        }, 5000);
     });
 }
