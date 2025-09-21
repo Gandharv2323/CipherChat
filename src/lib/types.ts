@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 export interface UserKeys {
   name: string;
   keys: {
@@ -8,7 +10,7 @@ export interface UserKeys {
 }
 
 export interface Message {
-  id: number;
+  id: number | string; // Firestore uses string IDs
   sender: string;
   recipient: string;
   plainText: string; // Not stored on server in prod
@@ -16,6 +18,7 @@ export interface Message {
   iv: string;
   decryptedText: string;
   isDecrypting?: boolean;
+  timestamp: Timestamp;
 }
 
 export interface CryptoLog {
@@ -34,5 +37,5 @@ export type MessageLifeCycle =
   
 export interface MessageStatus {
   step: MessageLifeCycle;
-  messageId: number | null;
+  messageId: number | string | null;
 }
