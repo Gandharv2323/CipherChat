@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
@@ -169,22 +170,28 @@ export function useCryptoChat() {
         const data = doc.data();
         serverMessages.push({ id: doc.id, ...data } as any);
       });
-
-      const currentUser = users[activeUser];
-      const currentSessionKey = currentUser.sessionKey;
+      
+      const aliceSessionKey = users.Alice.sessionKey;
+      const bobSessionKey = users.Bob.sessionKey;
 
       const newMessages = await Promise.all(
         serverMessages.map(async (msg) => {
           let decryptedText = `🔒 [Encrypted for ${msg.recipient}]`;
-          let isDecrypting = false;
-
-          // If the message is for the current user and they have a session key
-          if (msg.recipient === activeUser && currentSessionKey) {
+          const isDecrypting = false;
+          const sessionKey = msg.recipient === 'Alice' ? aliceSessionKey : bobSessionKey;
+          
+          if (msg.sender === activeUser) {
+            decryptedText = msg.plainText;
+            const existingMsg = messages.find(m => m.id === msg.id || (m.cipherText === msg.cipherText && m.sender === msg.sender));
+            if (existingMsg && messageStatus?.messageId === existingMsg.id) {
+                 setMessageStatus(prev => prev ? ({...prev, step: 'delivered'}) : null);
+            }
+          } else if (msg.recipient === activeUser && sessionKey) {
             try {
               if (messageStatus?.messageId === msg.id) {
                 setMessageStatus(prev => prev ? ({ ...prev, step: 'decrypting' }) : null);
               }
-              decryptedText = await decryptWithAes(msg.cipherText, msg.iv, currentSessionKey);
+              decryptedText = await decryptWithAes(msg.cipherText, msg.iv, sessionKey);
               if (messageStatus?.messageId === msg.id) {
                 setMessageStatus(prev => prev ? ({ ...prev, step: 'complete' }) : null);
                 resetMessageStatus();
@@ -193,13 +200,6 @@ export function useCryptoChat() {
             } catch (e) {
               console.error("Decryption failed for message:", msg.id, e);
               decryptedText = "🔒 [Decryption Failed]";
-            }
-          // If the message was sent by the current user
-          } else if (msg.sender === activeUser) {
-            decryptedText = msg.plainText; // Show the original text
-            const existingMsg = messages.find(m => m.id === msg.id || (m.cipherText === msg.cipherText && m.sender === msg.sender));
-            if (existingMsg && messageStatus?.messageId === existingMsg.id) {
-                 setMessageStatus(prev => prev ? ({...prev, step: 'delivered'}) : null);
             }
           }
           
